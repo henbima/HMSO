@@ -14,6 +14,8 @@ const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
 const AI_MODEL = "gpt-4o-mini";
 const BATCH_SIZE = 5;
 const MAX_MESSAGES_PER_RUN = 30;
+const CONVERSATION_TIMEOUT_MINUTES = 30;
+const CONVERSATION_WINDOW_HOURS = 2;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   db: { schema: "wa_intel" },
@@ -56,7 +58,7 @@ interface Classification {
 
 const SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's WhatsApp business intelligence system. HollyMart is a retail company in Indonesia. Messages are from WhatsApp groups used for daily operations, management, and coordination. Most messages are in Bahasa Indonesia.
 
-Classify each message into EXACTLY ONE category:
+You will receive an ENTIRE CONVERSATION THREAD (multiple messages over time). Classify the OVERALL CONVERSATION into EXACTLY ONE category:
 - task: An assignment, request, or to-do for someone. Someone is being asked to do something specific.
 - direction: A policy, rule, SOP change, or directive from leadership/management that others must follow.
 - report: A status update, progress report, sales figure, stock count, or operational data.
@@ -65,10 +67,10 @@ Classify each message into EXACTLY ONE category:
 - info: General business information sharing that doesn't fit other categories.
 - chitchat: Casual conversation, greetings, jokes, stickers-only context, or non-business content.
 
-For EACH message, return a JSON object with:
-- classification: one of the categories above
+Return ONE JSON object with:
+- classification: one of the categories above (for the entire conversation)
 - confidence: 0.0 to 1.0 (how certain you are)
-- summary: one-line summary in Bahasa Indonesia (max 100 chars)
+- summary: one-line summary of the entire conversation in Bahasa Indonesia (max 150 chars)
 - priority: "low" | "normal" | "high" | "urgent"
   - urgent = needs action within hours (safety, financial loss, leadership direct order)
   - high = needs action today
@@ -80,12 +82,16 @@ For EACH message, return a JSON object with:
 - deadline: raw deadline text if mentioned, e.g. "besok", "Jumat", "15 Feb" (null if none)
 
 IMPORTANT:
-- Consider the sender's role and position when classifying. Messages from leadership (is_leadership=true) are more likely to be tasks or directions.
+- Read the ENTIRE conversation to understand context. A 5-hour discussion should be classified as one coherent unit.
+- Consider the sender's role and position. Messages from leadership (is_leadership=true) are more likely to be tasks or directions.
 - Messages from Hendra (the owner) that contain instructions are almost always tasks or directions.
-- If a message is just a sticker, emoji reaction, or very short greeting like "ok", "siap", "noted" — classify as chitchat.
+- If the conversation is just greetings and acknowledgments ("ok", "siap", "noted"), classify as chitchat.
 - Return ONLY valid JSON. No markdown, no explanation.`;
 
 async function fetchUnclassifiedMessages(): Promise<MessageRow[]> {
+  const cutoffTime = new Date();
+  cutoffTime.setMinutes(cutoffTime.getMinutes() - CONVERSATION_TIMEOUT_MINUTES);
+
   const { data, error } = await supabase
     .from("messages")
     .select(
@@ -99,6 +105,7 @@ async function fetchUnclassifiedMessages(): Promise<MessageRow[]> {
     )
     .not("message_text", "is", null)
     .neq("message_text", "")
+    .lt("timestamp", cutoffTime.toISOString())
     .order("timestamp", { ascending: true })
     .limit(MAX_MESSAGES_PER_RUN + 50);
 
@@ -112,28 +119,85 @@ async function fetchUnclassifiedMessages(): Promise<MessageRow[]> {
     .slice(0, MAX_MESSAGES_PER_RUN);
 }
 
-function buildBatchPrompt(batch: MessageRow[]): string {
-  const parts = batch.map((msg, i) => {
-    const contact = msg.contacts;
-    const senderName =
-      contact?.display_name || msg.sender_name || msg.sender_jid;
-    const role = contact?.role || "unknown";
-    const location = contact?.location || "unknown";
-    const department = contact?.department || "unknown";
-    const isLeadership = contact?.is_leadership ? "YES" : "no";
-    const groupName = msg.groups?.name || msg.wa_group_id;
+interface Conversation {
+  groupId: string;
+  messages: MessageRow[];
+  startTime: Date;
+  endTime: Date;
+}
 
-    return `[${i + 1}]
-Sender: ${senderName}
-Role: ${role} | Dept: ${department} | Location: ${location} | Leadership: ${isLeadership} | Is Hendra: ${msg.is_from_hendra ? "YES" : "no"}
-Group: ${groupName}
-Time: ${msg.timestamp}
-Text: "${msg.message_text}"`;
+function groupMessagesIntoConversations(messages: MessageRow[]): Conversation[] {
+  const conversations: Conversation[] = [];
+  const groupedByChat: Record<string, MessageRow[]> = {};
+
+  for (const msg of messages) {
+    if (!groupedByChat[msg.wa_group_id]) {
+      groupedByChat[msg.wa_group_id] = [];
+    }
+    groupedByChat[msg.wa_group_id].push(msg);
+  }
+
+  for (const [groupId, msgs] of Object.entries(groupedByChat)) {
+    msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    let currentConversation: MessageRow[] = [];
+    let lastTimestamp: Date | null = null;
+
+    for (const msg of msgs) {
+      const msgTime = new Date(msg.timestamp);
+
+      if (!lastTimestamp || (msgTime.getTime() - lastTimestamp.getTime()) / 60000 > CONVERSATION_TIMEOUT_MINUTES) {
+        if (currentConversation.length > 0) {
+          conversations.push({
+            groupId,
+            messages: currentConversation,
+            startTime: new Date(currentConversation[0].timestamp),
+            endTime: new Date(currentConversation[currentConversation.length - 1].timestamp),
+          });
+        }
+        currentConversation = [msg];
+      } else {
+        currentConversation.push(msg);
+      }
+
+      lastTimestamp = msgTime;
+    }
+
+    if (currentConversation.length > 0) {
+      conversations.push({
+        groupId,
+        messages: currentConversation,
+        startTime: new Date(currentConversation[0].timestamp),
+        endTime: new Date(currentConversation[currentConversation.length - 1].timestamp),
+      });
+    }
+  }
+
+  return conversations;
+}
+
+function buildConversationPrompt(conversation: Conversation): string {
+  const groupName = conversation.messages[0]?.groups?.name || conversation.groupId;
+  const duration = Math.round((conversation.endTime.getTime() - conversation.startTime.getTime()) / 60000);
+
+  const messageParts = conversation.messages.map((msg, i) => {
+    const contact = msg.contacts;
+    const senderName = contact?.display_name || msg.sender_name || msg.sender_jid;
+    const role = contact?.role || "unknown";
+    const isLeadership = contact?.is_leadership ? "YES" : "no";
+    const time = new Date(msg.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+
+    return `[${i + 1}] ${time} | ${senderName} (${role}, Lead:${isLeadership}, Hendra:${msg.is_from_hendra ? "YES" : "no"})
+"${msg.message_text}"`;
   });
 
-  return `Classify the following ${batch.length} message(s). Return a JSON array with exactly ${batch.length} object(s), one per message in order.
+  return `This is a conversation thread from WhatsApp group "${groupName}" spanning ${duration} minutes with ${conversation.messages.length} messages.
 
-${parts.join("\n\n")}`;
+Classify the ENTIRE CONVERSATION as ONE unit. Consider the full context and flow.
+
+${messageParts.join("\n\n")}
+
+Return ONE classification object for the entire conversation thread.`;
 }
 
 async function callOpenAI(
@@ -202,6 +266,23 @@ async function saveClassification(
 
   if (error) {
     console.error(`Failed to save classification for ${msg.id}:`, error);
+    return null;
+  }
+
+  return data?.id || null;
+}
+
+async function getLastClassifiedItemId(messageId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("classified_items")
+    .select("id")
+    .eq("message_id", messageId)
+    .order("classified_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`Failed to get classified item for message ${messageId}:`, error);
     return null;
   }
 
@@ -322,48 +403,47 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log(`Processing ${messages.length} unclassified messages...`);
+    const conversations = groupMessagesIntoConversations(messages);
+    console.log(`Processing ${messages.length} messages grouped into ${conversations.length} conversations...`);
 
     let totalProcessed = 0;
     let totalTasks = 0;
     let totalDirections = 0;
     const errors: string[] = [];
 
-    for (let i = 0; i < messages.length; i += BATCH_SIZE) {
-      const batch = messages.slice(i, i + BATCH_SIZE);
-      const prompt = buildBatchPrompt(batch);
+    for (const conversation of conversations) {
+      const prompt = buildConversationPrompt(conversation);
 
-      let classifications: Classification[];
+      let classification: Classification;
       try {
-        classifications = await callOpenAI(SYSTEM_PROMPT, prompt);
+        const results = await callOpenAI(SYSTEM_PROMPT, prompt);
+        classification = results[0];
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`OpenAI batch error (offset ${i}):`, errMsg);
-        errors.push(`Batch ${i}: ${errMsg}`);
+        console.error(`OpenAI error for conversation in ${conversation.groupId}:`, errMsg);
+        errors.push(`Conversation ${conversation.groupId}: ${errMsg}`);
         continue;
       }
 
-      for (let j = 0; j < batch.length; j++) {
-        const msg = batch[j];
-        const cls = classifications[j];
+      if (!classification || !classification.classification) {
+        errors.push(`No classification returned for conversation in ${conversation.groupId}`);
+        continue;
+      }
 
-        if (!cls || !cls.classification) {
-          errors.push(`No classification returned for message ${msg.id}`);
-          continue;
-        }
-
-        const classifiedItemId = await saveClassification(msg, cls);
+      for (const msg of conversation.messages) {
+        const classifiedItemId = await saveClassification(msg, classification);
         if (!classifiedItemId) continue;
-
         totalProcessed++;
+      }
 
-        if (cls.classification === "task") {
-          await createTask(msg, cls, classifiedItemId);
-          totalTasks++;
-        } else if (cls.classification === "direction") {
-          await createDirection(msg, cls);
-          totalDirections++;
-        }
+      if (classification.classification === "task") {
+        const primaryMsg = conversation.messages[conversation.messages.length - 1];
+        await createTask(primaryMsg, classification, await getLastClassifiedItemId(primaryMsg.id));
+        totalTasks++;
+      } else if (classification.classification === "direction") {
+        const primaryMsg = conversation.messages[conversation.messages.length - 1];
+        await createDirection(primaryMsg, classification);
+        totalDirections++;
       }
     }
 
