@@ -7,6 +7,7 @@ import makeWASocket, {
 import { Boom } from '@hapi/boom';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import qrcode from 'qrcode-terminal';
 import { handleMessage } from './message-handler.js';
 import { syncAllGroups, handleParticipantsUpdate } from './group-sync.js';
 import { logger } from './logger.js';
@@ -34,7 +35,7 @@ async function startListener() {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger as any),
     },
-    printQRInTerminal: true,
+    printQRInTerminal: false,
     logger: logger as any,
     generateHighQualityLinkPreview: false,
     syncFullHistory: false,
@@ -47,7 +48,8 @@ async function startListener() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      logger.info('QR code displayed in terminal. Scan with your backup WhatsApp number.');
+      logger.info('QR code received. Rendering in terminal...');
+      qrcode.generate(qr, { small: true });
     }
 
     if (connection === 'close') {
