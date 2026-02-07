@@ -6,8 +6,8 @@ import { waIntel } from '../lib/supabase';
 import type { Group, Message, ClassifiedItem } from '../lib/types';
 
 interface GroupWithStats extends Group {
-  todayMessageCount: number;
-  flaggedCount: number;
+  today_message_count: number;
+  flagged_count: number;
 }
 
 interface MessageWithClassification extends Message {
@@ -24,51 +24,16 @@ export default function GroupsPage() {
   useEffect(() => {
     async function loadGroups() {
       setLoading(true);
-      const { data: groupsData } = await waIntel
-        .from('groups')
-        .select('*')
-        .eq('is_active', true)
-        .order('name');
+      const { data, error } = await waIntel.rpc('get_groups_with_today_stats');
 
-      if (!groupsData || groupsData.length === 0) {
+      if (error) {
+        console.error('Failed to load groups:', error);
         setGroups([]);
         setLoading(false);
         return;
       }
 
-      const today = new Date().toISOString().split('T')[0];
-      const enriched: GroupWithStats[] = [];
-
-      for (const group of groupsData) {
-        const [msgCount, flaggedCount] = await Promise.all([
-          waIntel
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('wa_group_id', group.wa_group_id)
-            .gte('timestamp', today),
-          waIntel
-            .from('messages')
-            .select('id, classified_items(classification)')
-            .eq('wa_group_id', group.wa_group_id)
-            .gte('timestamp', today),
-        ]);
-
-        const flagged = (flaggedCount.data || []).filter((m: Record<string, unknown>) => {
-          const ci = m.classified_items;
-          if (Array.isArray(ci) && ci.length > 0) {
-            return ['task', 'direction', 'report', 'question'].includes(ci[0].classification);
-          }
-          return false;
-        });
-
-        enriched.push({
-          ...group,
-          todayMessageCount: msgCount.count || 0,
-          flaggedCount: flagged.length,
-        });
-      }
-
-      setGroups(enriched);
+      setGroups((data || []) as GroupWithStats[]);
       setLoading(false);
     }
 
@@ -160,14 +125,14 @@ export default function GroupsPage() {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
-                  <span className="text-xs text-gray-500">{group.todayMessageCount} today</span>
+                  <span className="text-xs text-gray-500">{group.today_message_count} today</span>
                 </div>
               </div>
 
-              {group.flaggedCount > 0 && (
+              {group.flagged_count > 0 && (
                 <div className="mt-3 pt-3 border-t">
                   <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                    {group.flaggedCount} important messages today
+                    {group.flagged_count} important messages today
                   </span>
                 </div>
               )}

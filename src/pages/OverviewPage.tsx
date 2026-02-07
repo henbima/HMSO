@@ -106,6 +106,41 @@ export default function OverviewPage() {
       });
   }, []);
 
+  const refetchData = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const [
+      tasksRes,
+      overdueRes,
+      completedRes,
+      directionsRes,
+      messagesRes,
+      groupsRes,
+      recentTasksRes,
+      recentDirsRes,
+    ] = await Promise.all([
+      waIntel.from('tasks').select('id', { count: 'exact', head: true }).in('status', ['new', 'in_progress', 'stuck']),
+      waIntel.from('tasks').select('id', { count: 'exact', head: true }).in('status', ['new', 'in_progress', 'stuck']).lt('created_at', new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()),
+      waIntel.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'done').gte('completed_at', today),
+      waIntel.from('directions').select('id', { count: 'exact', head: true }).eq('is_still_valid', true),
+      waIntel.from('messages').select('id', { count: 'exact', head: true }),
+      waIntel.from('groups').select('*').eq('is_active', true).order('name'),
+      waIntel.from('tasks').select('*').in('status', ['new', 'in_progress', 'stuck']).order('created_at', { ascending: false }).limit(5),
+      waIntel.from('directions').select('*').eq('is_still_valid', true).order('created_at', { ascending: false }).limit(5),
+    ]);
+
+    setStats({
+      totalTasks: tasksRes.count || 0,
+      overdueTasks: overdueRes.count || 0,
+      completedToday: completedRes.count || 0,
+      activeDirections: directionsRes.count || 0,
+      totalMessages: messagesRes.count || 0,
+      activeGroups: groupsRes.data?.length || 0,
+    });
+    setRecentTasks(recentTasksRes.data || []);
+    setRecentDirections(recentDirsRes.data || []);
+    setGroups(groupsRes.data || []);
+  };
+
   useEffect(() => {
     if (!syncing) return;
 
@@ -122,7 +157,7 @@ export default function OverviewPage() {
         if (data.status === 'completed' || data.status === 'failed') {
           setSyncing(false);
           if (data.status === 'completed') {
-            window.location.reload();
+            refetchData();
           }
         }
       }
