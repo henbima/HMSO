@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { MessageSquare, Users, ChevronRight, ArrowLeft, Search, Star, SortAsc, Activity, LayoutGrid, List } from 'lucide-react';
+import { MessageSquare, Users, ChevronRight, ArrowLeft, Search, Star, SortAsc, Activity, LayoutGrid, List, Database } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
 import { ClassificationBadge } from '../components/StatusBadge';
 import { waIntel } from '../lib/supabase';
@@ -7,6 +7,7 @@ import type { Group, Message, ClassifiedItem } from '../lib/types';
 
 interface GroupWithStats extends Group {
   today_message_count: number;
+  total_message_count: number;
   flagged_count: number;
 }
 
@@ -353,9 +354,12 @@ function GroupGrid({
                 <p className="text-xs text-gray-500 truncate">{group.description}</p>
               )}
             </div>
-            <div className="flex items-center gap-6 text-xs text-gray-500">
+            <div className="flex items-center gap-4 text-xs text-gray-500">
               <span>{group.participant_count} members</span>
-              <span>{group.today_message_count} today</span>
+              <span className={group.today_message_count > 0 ? 'text-emerald-600 font-medium' : ''}>{group.today_message_count} today</span>
+              {group.total_message_count > 0 && (
+                <span className="text-gray-400">{group.total_message_count.toLocaleString()} total</span>
+              )}
             </div>
             <ChevronRight className="w-4 h-4 text-gray-300" />
           </div>
@@ -417,7 +421,7 @@ function GroupCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-4 mt-4">
+      <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-4">
         <div className="flex items-center gap-1.5">
           <Users className="w-3.5 h-3.5 text-gray-400" />
           <span className="text-xs text-gray-500">{group.participant_count} members</span>
@@ -428,6 +432,12 @@ function GroupCard({
             {group.today_message_count} today
           </span>
         </div>
+        {group.total_message_count > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Database className="w-3.5 h-3.5 text-gray-400" />
+            <span className="text-xs text-gray-500">{group.total_message_count.toLocaleString()} total</span>
+          </div>
+        )}
       </div>
 
       {group.flagged_count > 0 && (

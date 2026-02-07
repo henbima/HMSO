@@ -11,6 +11,7 @@ import {
   Users,
   Activity,
   ChevronRight,
+  Database,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import StatCard from '../components/StatCard';
@@ -39,6 +40,7 @@ interface OverviewStats {
 
 interface GroupWithStats extends Group {
   today_message_count: number;
+  total_message_count: number;
   flagged_count: number;
 }
 
@@ -374,6 +376,12 @@ export default function OverviewPage() {
                           <MessageSquare className="w-3 h-3" />
                           {group.today_message_count} today
                         </span>
+                        {group.total_message_count > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <Database className="w-3 h-3" />
+                            {group.total_message_count.toLocaleString()} total
+                          </span>
+                        )}
                         {group.flagged_count > 0 && (
                           <span className="flex items-center gap-1 text-xs text-amber-600 font-medium">
                             <Activity className="w-3 h-3" />
