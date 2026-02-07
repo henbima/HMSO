@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { FileText, Calendar, TrendingUp, AlertCircle } from 'lucide-react';
-import { waIntel } from '../lib/supabase';
+import { FileText, Calendar, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { waIntel, supabase } from '../lib/supabase';
 import EmptyState from '../components/EmptyState';
 
 interface Briefing {
@@ -18,11 +18,45 @@ interface Briefing {
 export default function BriefingsPage() {
   const [briefings, setBriefings] = useState<Briefing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchBriefings();
   }, []);
+
+  async function generateBriefing() {
+    setGenerating(true);
+    setGenerateError(null);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/daily-briefing`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to generate briefing');
+      }
+
+      await fetchBriefings();
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate briefing');
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function fetchBriefings() {
     try {
@@ -84,11 +118,34 @@ export default function BriefingsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Daily Briefings</h1>
-        <div className="text-sm text-gray-500">
-          {briefings.length} briefing tersimpan
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Daily Briefings</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {briefings.length} briefing tersimpan
+          </p>
         </div>
+        <button
+          onClick={generateBriefing}
+          disabled={generating}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {generating ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <RefreshCw className="w-4 h-4" />
+          )}
+          {generating ? 'Generating...' : 'Generate Briefing'}
+        </button>
       </div>
+
+      {generateError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-800">
+            <AlertCircle className="w-5 h-5" />
+            <p>{generateError}</p>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {briefings.map((briefing) => (
