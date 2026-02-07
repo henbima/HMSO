@@ -24,8 +24,11 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null);
 
   const extractGroupName = (filename: string): string => {
-    const match = filename.match(/WhatsApp Chat with (.+)\.txt$/i);
-    return match ? match[1] : '';
+    const match = filename.match(/WhatsApp[_ ]Chat[_ ]with[_ ](.+?)(?:\[\d+\])?\.txt$/i);
+    if (match) {
+      return match[1].replace(/_/g, ' ').trim();
+    }
+    return '';
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
