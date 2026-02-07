@@ -90,21 +90,20 @@ export default function OverviewPage() {
 
     loadOverview();
 
-    const { data } = waIntel
+    waIntel
       .from('sync_requests')
       .select('*')
       .order('requested_at', { ascending: false })
       .limit(1)
-      .maybeSingle();
-
-    data.then((result) => {
-      if (result.data) {
-        setSyncRequest(result.data);
-        if (result.data.status === 'pending' || result.data.status === 'processing') {
-          setSyncing(true);
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setSyncRequest(data);
+          if (data.status === 'pending' || data.status === 'processing') {
+            setSyncing(true);
+          }
         }
-      }
-    });
+      });
   }, []);
 
   useEffect(() => {
