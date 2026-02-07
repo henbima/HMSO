@@ -8,6 +8,7 @@ import DirectionsPage from './pages/DirectionsPage';
 import BriefingsPage from './pages/BriefingsPage';
 import GroupsPage from './pages/GroupsPage';
 import ContactsPage from './pages/ContactsPage';
+import ImportPage from './pages/ImportPage';
 import { Loader2 } from 'lucide-react';
 
 function AppRoutes() {
@@ -34,6 +35,7 @@ function AppRoutes() {
         <Route path="briefings" element={<BriefingsPage />} />
         <Route path="groups" element={<GroupsPage />} />
         <Route path="contacts" element={<ContactsPage />} />
+        <Route path="import" element={<ImportPage />} />
       </Route>
     </Routes>
   );

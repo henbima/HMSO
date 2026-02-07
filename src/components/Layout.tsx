@@ -10,6 +10,7 @@ import {
   Activity,
   LogOut,
   FileText,
+  Upload,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../lib/auth';
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/briefings', icon: FileText, label: 'Briefings' },
   { to: '/groups', icon: MessageSquare, label: 'Groups' },
   { to: '/contacts', icon: Users, label: 'Contacts' },
+  { to: '/import', icon: Upload, label: 'Import Chat' },
 ];
 
 export default function Layout() {
