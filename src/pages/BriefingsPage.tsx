@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { FileText, Calendar, TrendingUp, AlertCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { waIntel } from '../lib/supabase';
 import EmptyState from '../components/EmptyState';
 
 interface Briefing {
@@ -26,7 +26,7 @@ export default function BriefingsPage() {
 
   async function fetchBriefings() {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await waIntel
         .from('daily_briefings')
         .select('*')
         .order('briefing_date', { ascending: false })

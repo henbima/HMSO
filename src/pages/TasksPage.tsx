@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { CheckSquare, Plus, Filter, X } from 'lucide-react';
 import { TaskStatusBadge, PriorityBadge } from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
-import { supabase } from '../lib/supabase';
+import { waIntel } from '../lib/supabase';
 import type { Task, TaskStatus } from '../lib/types';
 
 const columns: { status: TaskStatus; label: string; color: string }[] = [
@@ -22,7 +22,7 @@ export default function TasksPage() {
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
-    let query = supabase.from('tasks').select('*').order('created_at', { ascending: false });
+    let query = waIntel.from('tasks').select('*').order('created_at', { ascending: false });
 
     if (filterGroup) {
       query = query.eq('group_name', filterGroup);
@@ -48,7 +48,7 @@ export default function TasksPage() {
     if (newStatus === 'done') {
       updates.completed_at = new Date().toISOString();
     }
-    await supabase.from('tasks').update(updates).eq('id', taskId);
+    await waIntel.from('tasks').update(updates).eq('id', taskId);
     fetchTasks();
   };
 
@@ -277,7 +277,7 @@ function AddTaskModal({
     if (!title.trim()) return;
 
     setSaving(true);
-    await supabase.from('tasks').insert({
+    await waIntel.from('tasks').insert({
       title: title.trim(),
       description: description.trim() || null,
       assigned_to: assignedTo.trim() || null,

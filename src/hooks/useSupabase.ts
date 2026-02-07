@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { waIntel } from '../lib/supabase';
 
 export function useQuery<T>(
   table: string,
@@ -21,7 +21,7 @@ export function useQuery<T>(
     setError(null);
 
     try {
-      let query = supabase.from(table).select(options?.select || '*');
+      let query = waIntel.from(table).select(options?.select || '*');
 
       if (options?.filter) {
         for (const f of options.filter) {

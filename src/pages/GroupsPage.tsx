@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { MessageSquare, Users, ChevronRight, ArrowLeft } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
 import { ClassificationBadge } from '../components/StatusBadge';
-import { supabase } from '../lib/supabase';
+import { waIntel } from '../lib/supabase';
 import type { Group, Message, ClassifiedItem } from '../lib/types';
 
 interface GroupWithStats extends Group {
@@ -24,7 +24,7 @@ export default function GroupsPage() {
   useEffect(() => {
     async function loadGroups() {
       setLoading(true);
-      const { data: groupsData } = await supabase
+      const { data: groupsData } = await waIntel
         .from('groups')
         .select('*')
         .eq('is_active', true)
@@ -41,12 +41,12 @@ export default function GroupsPage() {
 
       for (const group of groupsData) {
         const [msgCount, flaggedCount] = await Promise.all([
-          supabase
+          waIntel
             .from('messages')
             .select('id', { count: 'exact', head: true })
             .eq('wa_group_id', group.wa_group_id)
             .gte('timestamp', today),
-          supabase
+          waIntel
             .from('messages')
             .select('id, classified_items(classification)')
             .eq('wa_group_id', group.wa_group_id)
@@ -79,7 +79,7 @@ export default function GroupsPage() {
     setSelectedGroup(group);
     setMessagesLoading(true);
 
-    const { data: msgData } = await supabase
+    const { data: msgData } = await waIntel
       .from('messages')
       .select('*, classified_items(*)')
       .eq('wa_group_id', group.wa_group_id)

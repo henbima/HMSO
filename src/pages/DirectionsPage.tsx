@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Compass, Search, X, ChevronDown, ChevronUp, CheckCircle2, XCircle } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
-import { supabase } from '../lib/supabase';
+import { waIntel } from '../lib/supabase';
 import type { Direction } from '../lib/types';
 
 export default function DirectionsPage() {
@@ -14,7 +14,7 @@ export default function DirectionsPage() {
 
   const fetchDirections = useCallback(async () => {
     setLoading(true);
-    let query = supabase
+    let query = waIntel
       .from('directions')
       .select('*')
       .order('created_at', { ascending: false });
@@ -39,7 +39,7 @@ export default function DirectionsPage() {
   }, [fetchDirections]);
 
   const toggleValidity = async (id: string, current: boolean) => {
-    await supabase.from('directions').update({
+    await waIntel.from('directions').update({
       is_still_valid: !current,
       updated_at: new Date().toISOString(),
     }).eq('id', id);

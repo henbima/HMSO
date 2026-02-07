@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom';
 import StatCard from '../components/StatCard';
 import { TaskStatusBadge, PriorityBadge } from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
-import { supabase } from '../lib/supabase';
+import { waIntel } from '../lib/supabase';
 import type { Task, Direction, Group } from '../lib/types';
 
 interface SyncRequest {
@@ -64,14 +64,14 @@ export default function OverviewPage() {
         recentTasksRes,
         recentDirsRes,
       ] = await Promise.all([
-        supabase.from('tasks').select('id', { count: 'exact', head: true }).in('status', ['new', 'in_progress', 'stuck']),
-        supabase.from('tasks').select('id', { count: 'exact', head: true }).in('status', ['new', 'in_progress', 'stuck']).lt('created_at', new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()),
-        supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'done').gte('completed_at', today),
-        supabase.from('directions').select('id', { count: 'exact', head: true }).eq('is_still_valid', true),
-        supabase.from('messages').select('id', { count: 'exact', head: true }),
-        supabase.from('groups').select('*').eq('is_active', true).order('name'),
-        supabase.from('tasks').select('*').in('status', ['new', 'in_progress', 'stuck']).order('created_at', { ascending: false }).limit(5),
-        supabase.from('directions').select('*').eq('is_still_valid', true).order('created_at', { ascending: false }).limit(5),
+        waIntel.from('tasks').select('id', { count: 'exact', head: true }).in('status', ['new', 'in_progress', 'stuck']),
+        waIntel.from('tasks').select('id', { count: 'exact', head: true }).in('status', ['new', 'in_progress', 'stuck']).lt('created_at', new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()),
+        waIntel.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'done').gte('completed_at', today),
+        waIntel.from('directions').select('id', { count: 'exact', head: true }).eq('is_still_valid', true),
+        waIntel.from('messages').select('id', { count: 'exact', head: true }),
+        waIntel.from('groups').select('*').eq('is_active', true).order('name'),
+        waIntel.from('tasks').select('*').in('status', ['new', 'in_progress', 'stuck']).order('created_at', { ascending: false }).limit(5),
+        waIntel.from('directions').select('*').eq('is_still_valid', true).order('created_at', { ascending: false }).limit(5),
       ]);
 
       setStats({
@@ -90,7 +90,7 @@ export default function OverviewPage() {
 
     loadOverview();
 
-    const { data } = supabase
+    const { data } = waIntel
       .from('sync_requests')
       .select('*')
       .order('requested_at', { ascending: false })
@@ -111,7 +111,7 @@ export default function OverviewPage() {
     if (!syncing) return;
 
     const interval = setInterval(async () => {
-      const { data } = await supabase
+      const { data } = await waIntel
         .from('sync_requests')
         .select('*')
         .order('requested_at', { ascending: false })
@@ -134,7 +134,7 @@ export default function OverviewPage() {
 
   async function handleRefreshGroups() {
     setSyncing(true);
-    const { data, error } = await supabase
+    const { data, error } = await waIntel
       .from('sync_requests')
       .insert({ status: 'pending' })
       .select()

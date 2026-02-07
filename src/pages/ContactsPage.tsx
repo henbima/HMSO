@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Users, Search, Plus, X, Edit3, MapPin, Briefcase, Building } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
-import { supabase } from '../lib/supabase';
+import { waIntel } from '../lib/supabase';
 import type { Contact } from '../lib/types';
 
 export default function ContactsPage() {
@@ -15,7 +15,7 @@ export default function ContactsPage() {
 
   const fetchContacts = useCallback(async () => {
     setLoading(true);
-    let query = supabase
+    let query = waIntel
       .from('contacts')
       .select('*')
       .eq('is_active', true)
@@ -260,9 +260,9 @@ function ContactModal({
     };
 
     if (contact) {
-      await supabase.from('contacts').update(payload).eq('id', contact.id);
+      await waIntel.from('contacts').update(payload).eq('id', contact.id);
     } else {
-      await supabase.from('contacts').insert(payload);
+      await waIntel.from('contacts').insert(payload);
     }
 
     setSaving(false);
