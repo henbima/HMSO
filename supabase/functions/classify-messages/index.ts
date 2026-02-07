@@ -15,9 +15,7 @@ const AI_MODEL = "gpt-4o-mini";
 const BATCH_SIZE = 5;
 const MAX_MESSAGES_PER_RUN = 30;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  db: { schema: "wa_intel" },
-});
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 interface MessageRow {
   id: string;
