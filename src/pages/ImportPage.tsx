@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Upload, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
-import { useQuery } from '../hooks/useSupabase';
 
 interface ImportStats {
   totalParsed: number;
@@ -17,41 +16,42 @@ interface ImportResult {
   group: string;
 }
 
-interface Group {
-  id: string;
-  name: string;
-  wa_group_id: string;
-}
-
 export default function ImportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [groupName, setGroupName] = useState('');
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: groups, loading } = useQuery<Group>('groups', {
-    select: 'id, name, wa_group_id',
-    filter: [{ column: 'is_active', operator: 'eq', value: true }]
-  });
+  const extractGroupName = (filename: string): string => {
+    const match = filename.match(/WhatsApp Chat with (.+)\.txt$/i);
+    return match ? match[1] : '';
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.name.endsWith('.txt') || file.type === 'text/plain') {
+        const extractedName = extractGroupName(file.name);
         setSelectedFile(file);
+        setGroupName(extractedName);
         setError(null);
         setResult(null);
+
+        if (!extractedName) {
+          setError('Could not extract group name from filename. Expected format: "WhatsApp Chat with Group_Name.txt"');
+        }
       } else {
         setError('Please select a .txt file (WhatsApp chat export)');
         setSelectedFile(null);
+        setGroupName('');
       }
     }
   };
 
   const handleImport = async () => {
-    if (!selectedFile || !selectedGroupId) {
-      setError('Please select both a file and a group');
+    if (!selectedFile || !groupName) {
+      setError('Please select a valid WhatsApp chat export file');
       return;
     }
 
@@ -73,7 +73,7 @@ export default function ImportPage() {
         headers,
         body: JSON.stringify({
           chatText,
-          groupId: selectedGroupId,
+          groupName,
           skipClassification: false,
         }),
       });
@@ -120,24 +120,13 @@ export default function ImportPage() {
           </div>
 
           <div className="border-t pt-6">
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select Group
-              </label>
-              <select
-                value={selectedGroupId}
-                onChange={(e) => setSelectedGroupId(e.target.value)}
-                disabled={loading || importing}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="">Choose a group...</option>
-                {groups?.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {groupName && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-900">
+                  <span className="font-medium">Detected Group:</span> {groupName}
+                </p>
+              </div>
+            )}
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -179,7 +168,7 @@ export default function ImportPage() {
 
             <button
               onClick={handleImport}
-              disabled={!selectedFile || !selectedGroupId || importing}
+              disabled={!selectedFile || !groupName || importing}
               className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
             >
               {importing ? (
@@ -264,9 +253,10 @@ export default function ImportPage() {
         <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <h3 className="font-medium text-blue-900 mb-2">Tips for Best Results</h3>
           <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
+            <li>The group name is automatically extracted from the filename</li>
+            <li>Make sure the group exists in your Groups page with the exact same name</li>
             <li>Export without media for faster processing</li>
             <li>Ensure contact names match those in your Contacts page</li>
-            <li>Import messages are marked as historical in the database</li>
             <li>The AI will have access to this context for better analysis</li>
           </ul>
         </div>

@@ -16,7 +16,7 @@ interface ParsedMessage {
 
 interface ImportRequest {
   chatText: string;
-  groupId: string;
+  groupName: string;
   skipClassification?: boolean;
 }
 
@@ -118,11 +118,11 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { chatText, groupId, skipClassification = false }: ImportRequest = await req.json();
+    const { chatText, groupName, skipClassification = false }: ImportRequest = await req.json();
 
-    if (!chatText || !groupId) {
+    if (!chatText || !groupName) {
       return new Response(
-        JSON.stringify({ error: "chatText and groupId are required" }),
+        JSON.stringify({ error: "chatText and groupName are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -130,7 +130,7 @@ Deno.serve(async (req: Request) => {
     const { data: group } = await supabase
       .from("wa_intel.groups")
       .select("id, wa_group_id, name")
-      .eq("id", groupId)
+      .eq("name", groupName)
       .maybeSingle();
 
     if (!group) {
