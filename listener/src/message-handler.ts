@@ -1,10 +1,18 @@
+import type { WASocket } from '@whiskeysockets/baileys';
 import type { proto } from '@whiskeysockets/baileys';
 import { supabase } from './supabase.js';
 import { resolveContact } from './contact-resolver.js';
+import { isGroupKnown, syncSingleGroup } from './group-sync.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 
 type WAMessage = proto.IWebMessageInfo;
+
+let activeSock: WASocket | null = null;
+
+export function setSocket(sock: WASocket) {
+  activeSock = sock;
+}
 
 export async function handleMessage(msg: WAMessage) {
   const remoteJid = msg.key?.remoteJid;
@@ -12,6 +20,12 @@ export async function handleMessage(msg: WAMessage) {
 
   const isGroup = remoteJid.endsWith('@g.us');
   if (!isGroup) return;
+
+  if (!isGroupKnown(remoteJid) && activeSock) {
+    syncSingleGroup(activeSock, remoteJid).catch((err) => {
+      logger.warn({ err, group: remoteJid }, 'Background group sync failed');
+    });
+  }
 
   const senderJid = msg.key?.participant || msg.key?.remoteJid;
   if (!senderJid) return;

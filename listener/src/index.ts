@@ -8,8 +8,8 @@ import { Boom } from '@hapi/boom';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import qrcode from 'qrcode-terminal';
-import { handleMessage } from './message-handler.js';
-import { syncAllGroups, handleParticipantsUpdate } from './group-sync.js';
+import { handleMessage, setSocket } from './message-handler.js';
+import { syncAllGroups, shouldFullSync, handleParticipantsUpdate } from './group-sync.js';
 import { logger } from './logger.js';
 import { config } from './config.js';
 
@@ -19,6 +19,8 @@ const AUTH_DIR = join(__dirname, '..', 'auth_info');
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 20;
 const RECONNECT_BASE_DELAY = 3000;
+
+let syncTimer: ReturnType<typeof setInterval> | null = null;
 
 async function startListener() {
   logger.info('Starting WA Intel Listener...');
@@ -42,6 +44,8 @@ async function startListener() {
     markOnlineOnConnect: false,
   });
 
+  setSocket(sock);
+
   sock.ev.on('creds.update', saveCreds);
 
   sock.ev.on('connection.update', async (update) => {
@@ -53,6 +57,11 @@ async function startListener() {
     }
 
     if (connection === 'close') {
+      if (syncTimer) {
+        clearInterval(syncTimer);
+        syncTimer = null;
+      }
+
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
@@ -76,11 +85,29 @@ async function startListener() {
       reconnectAttempts = 0;
       logger.info('Connected to WhatsApp');
 
-      try {
-        await syncAllGroups(sock);
-      } catch (err) {
-        logger.error({ err }, 'Initial group sync failed (non-fatal)');
+      const needsSync = shouldFullSync();
+
+      if (needsSync) {
+        logger.info('Full group sync needed (first run or stale data)');
+        try {
+          await syncAllGroups(sock);
+        } catch (err) {
+          logger.error({ err }, 'Initial group sync failed (non-fatal)');
+        }
+      } else {
+        logger.info('Skipping full group sync (recent data exists). Using lazy per-group sync.');
       }
+
+      syncTimer = setInterval(async () => {
+        if (shouldFullSync()) {
+          logger.info('Scheduled full group sync triggered');
+          try {
+            await syncAllGroups(sock);
+          } catch (err) {
+            logger.error({ err }, 'Scheduled group sync failed (non-fatal)');
+          }
+        }
+      }, 60 * 60 * 1000);
     }
   });
 

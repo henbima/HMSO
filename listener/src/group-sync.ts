@@ -1,10 +1,69 @@
 import type { WASocket, GroupMetadata } from '@whiskeysockets/baileys';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { supabase } from './supabase.js';
 import { resolveContact } from './contact-resolver.js';
 import { logger } from './logger.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SYNC_STATE_FILE = join(__dirname, '..', 'auth_info', '.last_group_sync');
+const SYNC_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+const PER_GROUP_DELAY_MS = 800;
+
+const knownGroupJids = new Set<string>();
+let lastFullSyncTime = 0;
+
+function loadSyncState() {
+  try {
+    if (existsSync(SYNC_STATE_FILE)) {
+      const raw = readFileSync(SYNC_STATE_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      lastFullSyncTime = parsed.lastSync || 0;
+      if (Array.isArray(parsed.knownGroups)) {
+        parsed.knownGroups.forEach((jid: string) => knownGroupJids.add(jid));
+      }
+      logger.info(
+        { lastSync: new Date(lastFullSyncTime).toISOString(), knownGroups: knownGroupJids.size },
+        'Loaded sync state'
+      );
+    }
+  } catch {
+    logger.warn('Could not load sync state, will do full sync');
+  }
+}
+
+function saveSyncState() {
+  try {
+    writeFileSync(
+      SYNC_STATE_FILE,
+      JSON.stringify({
+        lastSync: lastFullSyncTime,
+        knownGroups: Array.from(knownGroupJids),
+      })
+    );
+  } catch (err) {
+    logger.warn({ err }, 'Could not save sync state');
+  }
+}
+
+export function shouldFullSync(): boolean {
+  loadSyncState();
+  if (lastFullSyncTime === 0) return true;
+  const elapsed = Date.now() - lastFullSyncTime;
+  return elapsed > SYNC_COOLDOWN_MS;
+}
+
+export function isGroupKnown(waGroupId: string): boolean {
+  return knownGroupJids.has(waGroupId);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export async function syncAllGroups(sock: WASocket) {
-  logger.info('Syncing all group metadata...');
+  logger.info('Starting full group sync (staggered)...');
 
   let groups: Record<string, GroupMetadata>;
   try {
@@ -17,11 +76,34 @@ export async function syncAllGroups(sock: WASocket) {
   const entries = Object.values(groups);
   logger.info({ count: entries.length }, 'Fetched groups');
 
-  for (const group of entries) {
-    await upsertGroup(group);
+  for (let i = 0; i < entries.length; i++) {
+    await upsertGroup(entries[i]);
+    knownGroupJids.add(entries[i].id);
+
+    if (i < entries.length - 1) {
+      await sleep(PER_GROUP_DELAY_MS);
+    }
   }
 
-  logger.info('Group sync complete');
+  lastFullSyncTime = Date.now();
+  saveSyncState();
+  logger.info('Full group sync complete');
+}
+
+export async function syncSingleGroup(sock: WASocket, waGroupId: string) {
+  if (knownGroupJids.has(waGroupId)) return;
+
+  logger.info({ waGroupId }, 'Lazy-syncing single group');
+
+  try {
+    const meta = await sock.groupMetadata(waGroupId);
+    await upsertGroup(meta);
+    knownGroupJids.add(waGroupId);
+    saveSyncState();
+  } catch (err) {
+    logger.warn({ err, waGroupId }, 'Failed to lazy-sync group (non-fatal)');
+    knownGroupJids.add(waGroupId);
+  }
 }
 
 async function upsertGroup(meta: GroupMetadata) {
