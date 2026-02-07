@@ -41,6 +41,48 @@ WhatsApp message listener for HollyMart WA Intelligence. Connects to WhatsApp vi
 
    After scanning, the `auth_info/` folder is created. You won't need to scan again unless you delete it.
 
+## Running Multiple Listeners (Redundancy)
+
+You can run multiple listeners simultaneously using different WhatsApp numbers for redundancy. Each listener tracks which data it captured via `listener_id`.
+
+### Setup for Multiple Listeners:
+
+1. **First listener (e.g., personal number):**
+   ```bash
+   # Create .env.personal
+   cp .env.example .env.personal
+   # Edit .env.personal and set:
+   # LISTENER_ID=personal
+   # HENDRA_JID=628xxx...
+
+   # Run first listener
+   LISTENER_ID=personal npm start
+   ```
+   Scan QR with your personal WhatsApp. Auth saves to `auth_info/personal/`
+
+2. **Second listener (e.g., company number):**
+   ```bash
+   # In a new terminal
+   cp .env.example .env.company
+   # Edit .env.company and set:
+   # LISTENER_ID=company
+   # HENDRA_JID=628xxx...
+
+   # Run second listener
+   LISTENER_ID=company npm start
+   ```
+   Scan QR with your company WhatsApp. Auth saves to `auth_info/company/`
+
+Both listeners:
+- Write to the same database
+- Tag data with their `listener_id`
+- Run independently (one can restart without affecting the other)
+- If one is banned, the other continues capturing
+
+### With PM2 (Production):
+
+Update `ecosystem.config.cjs` to run multiple instances with different env files.
+
 ## Running in Production (PM2)
 
 ```bash

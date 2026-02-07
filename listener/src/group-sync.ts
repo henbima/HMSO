@@ -8,7 +8,7 @@ import { logger } from './logger.js';
 import { config } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SYNC_STATE_FILE = join(__dirname, '..', 'auth_info', '.last_group_sync');
+const SYNC_STATE_FILE = join(__dirname, '..', 'auth_info', config.listenerId, '.last_group_sync');
 const SYNC_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 const PER_GROUP_DELAY_MS = 800;
 

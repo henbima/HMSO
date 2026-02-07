@@ -14,7 +14,7 @@ import { logger } from './logger.js';
 import { config } from './config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const AUTH_DIR = join(__dirname, '..', 'auth_info');
+const AUTH_DIR = join(__dirname, '..', 'auth_info', config.listenerId);
 
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 20;
