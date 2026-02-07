@@ -93,8 +93,8 @@ function parseTimestamp(datePart: string, timePart: string): Date {
     return new Date(NaN);
   }
 
-  let day = dateParts[0];
-  let month = dateParts[1];
+  let month = dateParts[0];
+  let day = dateParts[1];
   let year = dateParts[2];
 
   if (year.length === 2) {
