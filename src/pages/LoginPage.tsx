@@ -1,28 +1,25 @@
 import { useState } from 'react';
-import { Activity, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Activity, Eye, EyeOff, Loader2, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 
 export default function LoginPage() {
-  const { signIn, signUp } = useAuth();
+  const { signIn, unauthorized } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<'login' | 'register'>('login');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
-    const result = mode === 'login'
-      ? await signIn(email, password)
-      : await signUp(email, password);
-
+    const result = await signIn(email, password);
     if (result.error) {
       setError(result.error);
     }
+    // Don't navigate — AuthContext handles redirect via session state
 
     setLoading(false);
   };
@@ -39,9 +36,14 @@ export default function LoginPage() {
         </div>
 
         <div className="bg-white rounded-xl border shadow-sm p-6">
-          <h2 className="text-base font-medium text-gray-900 mb-5">
-            {mode === 'login' ? 'Sign in to your account' : 'Create an account'}
-          </h2>
+          {unauthorized && (
+            <div className="flex items-start gap-2.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-5">
+              <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>Access denied. This app is restricted to authorized users only.</span>
+            </div>
+          )}
+
+          <h2 className="text-base font-medium text-gray-900 mb-5">Sign in</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -51,8 +53,9 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="email"
                 className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
-                placeholder="you@hollymart.com"
+                placeholder="you@hokkymart.com"
               />
             </div>
 
@@ -65,6 +68,7 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
+                  autoComplete="current-password"
                   className="w-full px-3 py-2 border rounded-lg text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-colors"
                   placeholder="Enter your password"
                 />
@@ -72,6 +76,7 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -90,18 +95,13 @@ export default function LoginPage() {
               className="w-full py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              {mode === 'login' ? 'Sign In' : 'Create Account'}
+              Sign In
             </button>
           </form>
 
-          <div className="mt-4 text-center">
-            <button
-              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}
-              className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
-            >
-              {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Sign in'}
-            </button>
-          </div>
+          <p className="mt-5 text-xs text-gray-400 text-center">
+            Private app — authorized access only
+          </p>
         </div>
       </div>
     </div>
