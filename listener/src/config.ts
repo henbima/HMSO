@@ -14,4 +14,5 @@ export const config = {
   hendraJid: required('HENDRA_JID'),
   listenerId: process.env.LISTENER_ID || 'default',
   logLevel: (process.env.LOG_LEVEL || 'info') as 'silent' | 'info' | 'debug' | 'warn' | 'error',
+  briefingRecipientJid: process.env.BRIEFING_RECIPIENT_JID || '',
 } as const;

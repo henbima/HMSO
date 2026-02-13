@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import qrcode from 'qrcode-terminal';
 import { handleMessage, setSocket } from './message-handler.js';
 import { syncAllGroups, handleParticipantsUpdate } from './group-sync.js';
+import { checkAndSendBriefings } from './briefing-sender.js';
 import { logger } from './logger.js';
 import { config } from './config.js';
 import { supabase } from './supabase.js';
@@ -22,6 +23,7 @@ const MAX_RECONNECT_ATTEMPTS = 20;
 const RECONNECT_BASE_DELAY = 3000;
 
 let syncTimer: ReturnType<typeof setInterval> | null = null;
+let briefingTimer: ReturnType<typeof setInterval> | null = null;
 
 async function startListener() {
   logger.info('Starting WA Intel Listener...');
@@ -61,6 +63,10 @@ async function startListener() {
       if (syncTimer) {
         clearInterval(syncTimer);
         syncTimer = null;
+      }
+      if (briefingTimer) {
+        clearInterval(briefingTimer);
+        briefingTimer = null;
       }
 
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
@@ -131,6 +137,14 @@ async function startListener() {
           logger.error({ err }, 'Error checking sync requests');
         }
       }, 10000);
+
+      briefingTimer = setInterval(async () => {
+        try {
+          await checkAndSendBriefings(sock);
+        } catch (err) {
+          logger.error({ err }, 'Error checking/sending briefings');
+        }
+      }, 60000);
     }
   });
 
