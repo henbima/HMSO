@@ -1,0 +1,104 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--access-token",
+        "sbp_cefba092ff1f2c6ef9fe269d1f20523f9ad1120b",
+        "--project-ref",
+        "nnzhdjibilebpjgaqkdu"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "sbp_cefba092ff1f2c6ef9fe269d1f20523f9ad1120b",
+        "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uemhkamliaWxlYnBqZ2Fxa2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTM4NDcwNywiZXhwIjoyMDY0OTYwNzA3fQ.FCCIYbAYC_6zQwegW0vTa1GxnD4mflFEuZAAFMB0FKs",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uemhkamliaWxlYnBqZ2Fxa2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkzODQ3MDcsImV4cCI6MjA2NDk2MDcwN30.kCvBzHhs5g6PWFsGghUD72_v0RGQ2H8hWrH_AZ0QyGc"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "mcp_supabase_execute_sql",
+        "mcp_supabase_list_tables",
+        "mcp_supabase_describe_table",
+        "list_tables",
+        "apply_migration",
+        "execute_sql",
+        "get_logs",
+        "list_migrations",
+        "get_project_url",
+        "get_anon_key",
+        "list_edge_functions",
+        "get_edge_function",
+        "search_docs",
+        "deploy_edge_function"
+      ],
+      "disabledTools": [
+        "generate_typescript_types",
+        "rebase_branch",
+        "reset_branch"
+      ]
+    },
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "env": {
+        "DEFAULT_MINIMUM_TOKENS": ""
+      },
+      "disabled": false,
+      "autoApprove": [
+        "resolve-library-id",
+        "get-library-docs"
+      ],
+      "disabledTools": []
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--isolated"
+      ],
+      "disabled": false,
+      "autoApprove": [
+        "browser_navigate",
+        "browser_install",
+        "browser_wait_for",
+        "browser_click",
+        "browser_evaluate",
+        "browser_type",
+        "browser_console_messages",
+        "browser_fill_form",
+        "browser_take_screenshot",
+        "browser_type",
+        "browser_close",
+        "browser_snapshot",
+        "browser_press_key",
+        "browser_file_upload",
+        "browser_resize",
+        "browser_run_code",
+        "browser_network_requests",
+        "browser_handle_dialog"
+      ]
+    },
+    "sqlserver": {
+      "command": "node",
+      "args": [
+        "D:/Windsurf - Git/HMAffari/tools/mcp-sqlserver/index.js"
+      ],
+      "env": {
+        "SQLSERVER_HOST": "192.168.51.100",
+        "SQLSERVER_USER": "claude_reader",
+        "SQLSERVER_PASSWORD": "${SQLSERVER_PASSWORD}"
+      },
+      "disabled": false,
+      "autoApprove": [
+        "sql_query",
+        "list_databases",
+        "list_tables",
+        "describe_table"
+      ]
+    }
+  }
+}

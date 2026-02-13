@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Spec Numbering Check",
+  "description": "Safety net: catches spec folders created without the required number prefix. Spec folders must ALWAYS be created as {NUMBER}-{name} from the start — check SPEC_REGISTRY.md before creating.",
+  "version": "1",
+  "when": {
+    "type": "fileCreated",
+    "patterns": [
+      ".kiro/specs/**"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "VIOLATION CHECK: A file was created in .kiro/specs/. Verify the spec folder name starts with a 3-digit number (e.g., 203-my-feature/). Folders starting with underscore (_completed, _pending, _templates) are exempt. If the folder does NOT have a number prefix, this is a VIOLATION of the spec numbering system. You should have read HMWAIntel/SPEC_REGISTRY.md BEFORE creating the folder and named it correctly from the start. Fix it now: read the registry, pick the correct number, rename the folder, and update the registry."
+  }
+}
