@@ -26,3 +26,7 @@ dist-ssr
 # Baileys WhatsApp session credentials (sensitive - never commit)
 listener/auth_info/
 auth_info/
+
+# Temporary folders
+HMCS-New-Project-Bootstrap-*/
+supabase/.temp/
