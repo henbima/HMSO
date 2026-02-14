@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Users, Search, Plus, X, Edit3, MapPin, Briefcase, Building, ChevronLeft, ChevronRight } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
-import { waIntel } from '../lib/supabase';
+import { hmso } from '../lib/supabase';
 import type { Contact } from '../lib/types';
 
 const PAGE_SIZE = 50;
@@ -35,8 +35,8 @@ export default function ContactsPage() {
   useEffect(() => {
     async function loadFilters() {
       const [locRes, deptRes] = await Promise.all([
-        waIntel.from('contacts').select('location').eq('is_active', true).not('location', 'is', null),
-        waIntel.from('contacts').select('department').eq('is_active', true).not('department', 'is', null),
+        hmso.from('contacts').select('location').eq('is_active', true).not('location', 'is', null),
+        hmso.from('contacts').select('department').eq('is_active', true).not('department', 'is', null),
       ]);
       const locs = [...new Set((locRes.data || []).map((r) => r.location as string))].sort();
       const depts = [...new Set((deptRes.data || []).map((r) => r.department as string))].sort();
@@ -48,7 +48,7 @@ export default function ContactsPage() {
 
   const fetchContacts = useCallback(async () => {
     setLoading(true);
-    let query = waIntel
+    let query = hmso
       .from('contacts')
       .select('*', { count: 'exact' })
       .eq('is_active', true)
@@ -325,9 +325,9 @@ function ContactModal({
     };
 
     if (contact) {
-      await waIntel.from('contacts').update(payload).eq('id', contact.id);
+      await hmso.from('contacts').update(payload).eq('id', contact.id);
     } else {
-      await waIntel.from('contacts').insert(payload);
+      await hmso.from('contacts').insert(payload);
     }
 
     setSaving(false);

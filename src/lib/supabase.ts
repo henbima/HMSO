@@ -15,4 +15,4 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-export const waIntel = supabase.schema('wa_intel');
+export const hmso = supabase.schema('hmso');

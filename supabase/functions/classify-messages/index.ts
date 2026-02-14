@@ -16,7 +16,7 @@ const CONVERSATION_TIMEOUT_MINUTES = 30;
 const CONVERSATION_WINDOW_HOURS = 2;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  db: { schema: "wa_intel" },
+  db: { schema: "hmso" },
 });
 
 // ─── AI Provider Abstraction ───────────────────────────────────────────────
@@ -104,6 +104,7 @@ interface MessageRow {
   timestamp: string;
   conversation_type: 'group' | 'personal';
   wa_contact_jid: string | null;
+  source_type: string;
   contacts: {
     display_name: string;
     role: string | null;
@@ -129,7 +130,7 @@ interface Classification {
   deadline: string | null;
 }
 
-const SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's WhatsApp business intelligence system. HollyMart is a retail company in Indonesia. Messages are from WhatsApp groups used for daily operations, management, and coordination. Most messages are in Bahasa Indonesia.
+const SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's organizational intelligence system (HMSO). HollyMart is a retail company in Indonesia. Messages are from WhatsApp groups used for daily operations, management, and coordination. Most messages are in Bahasa Indonesia.
 
 You will receive a REPLY THREAD (messages that replied to each other). This is ONE specific topic/conversation that has been separated from other interleaved topics in the same group. Classify this THREAD into EXACTLY ONE category:
 - task: An assignment, request, or to-do for someone. Someone is being asked to do something specific.
@@ -162,7 +163,44 @@ IMPORTANT:
 - Complaints or issues should be classified as "question" or "task" depending on whether action is requested.
 - Return ONLY valid JSON. No markdown, no explanation.`;
 
-const PERSONAL_SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's WhatsApp business intelligence system. HollyMart is a retail company in Indonesia. These messages are from a PRIVATE/DIRECT conversation with Hendra (the owner). Most messages are in Bahasa Indonesia.
+const MEETING_SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's organizational intelligence system (HMSO). HollyMart is a retail company in Indonesia. You are classifying a MEETING TRANSCRIPT CHUNK — a segment from a recorded meeting (Zoom, in-person, etc.).
+
+Meeting chunks differ from WhatsApp messages:
+- They contain structured discussion, not casual chat
+- Multiple topics may be discussed within a single chunk
+- Decisions carry more weight than in chat messages
+- Action items are more explicit and formal
+
+Classify this meeting chunk into EXACTLY ONE primary category:
+- task: An action item, assignment, or to-do discussed in the meeting.
+- direction: A policy decision, SOP change, or directive agreed upon in the meeting.
+- report: A status update, progress report, or data presentation during the meeting.
+- question: A question raised that needs follow-up or resolution.
+- coordination: Planning, scheduling, or logistics discussed in the meeting.
+- noise: Off-topic discussion, small talk, or non-business content.
+
+Return ONE JSON object with:
+- classification: MUST be one of: "task", "direction", "report", "question", "coordination", "noise"
+- confidence: 0.0 to 1.0 (how certain you are)
+- summary: one-line summary of the chunk in Bahasa Indonesia (max 150 chars)
+- priority: "low" | "normal" | "high" | "urgent"
+  - urgent = needs action within hours (safety, financial loss, leadership direct order)
+  - high = needs action today
+  - normal = standard business item
+  - low = informational, no action needed
+- topic: brief topic label in Bahasa Indonesia (max 30 chars)
+- assigned_to: person name if a task was assigned (null otherwise)
+- assigned_by: person name if a task was assigned (null otherwise)
+- deadline: raw deadline text if mentioned (null if none)
+
+IMPORTANT:
+- Meeting discussions often contain MULTIPLE action items — classify by the PRIMARY/most important one.
+- Decisions made in meetings are more authoritative than chat messages — weight "direction" higher.
+- If Hendra (the owner) assigns something in a meeting, it is almost certainly a "task" or "direction".
+- Meeting chunks may reference previous meetings or ongoing projects — classify based on what is discussed in THIS chunk.
+- Return ONLY valid JSON. No markdown, no explanation.`;
+
+const PERSONAL_SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's organizational intelligence system (HMSO). HollyMart is a retail company in Indonesia. These messages are from a PRIVATE/DIRECT conversation with Hendra (the owner). Most messages are in Bahasa Indonesia.
 
 You will receive a direct message thread between Hendra and one contact. This is a 1-on-1 private conversation, NOT a group chat. Classify this conversation into EXACTLY ONE category:
 - task: An assignment, request, or to-do for someone. Someone is being asked to do something specific.
@@ -203,7 +241,7 @@ async function fetchUnclassifiedMessages(): Promise<MessageRow[]> {
       `
       id, wa_message_id, wa_group_id, sender_jid, sender_name,
       message_text, message_type, is_from_hendra, quoted_message_id, timestamp,
-      conversation_type, wa_contact_jid,
+      conversation_type, wa_contact_jid, source_type,
       contacts:contact_id(display_name, role, location, department, is_leadership),
       groups:group_id(name),
       classified_items(id)
@@ -399,6 +437,18 @@ Return ONE classification object for this direct conversation.`;
   }
 
   const groupName = conversation.messages[0]?.groups?.name || conversation.groupId;
+  const isMeeting = conversation.messages.some((m) => m.source_type === 'meeting');
+
+  if (isMeeting) {
+    return `This is a MEETING TRANSCRIPT CHUNK from "${groupName}" spanning ${duration} minutes with ${conversation.messages.length} segments.
+
+This content comes from a recorded meeting (Zoom/in-person). Classify the PRIMARY topic discussed in this chunk.
+Meeting discussions often contain multiple action items — focus on the most important one.
+
+${messageParts.join("\n\n")}
+
+Return ONE classification object for this meeting chunk.`;
+  }
 
   return `This is a REPLY THREAD from WhatsApp group "${groupName}" spanning ${duration} minutes with ${conversation.messages.length} messages.
 
@@ -600,7 +650,12 @@ Deno.serve(async (req: Request) => {
 
     for (const conversation of conversations) {
       const prompt = buildConversationPrompt(conversation);
-      const systemPrompt = conversation.conversationType === 'personal' ? PERSONAL_SYSTEM_PROMPT : SYSTEM_PROMPT;
+      const isMeeting = conversation.messages.some((m) => m.source_type === 'meeting');
+      const systemPrompt = isMeeting
+        ? MEETING_SYSTEM_PROMPT
+        : conversation.conversationType === 'personal'
+          ? PERSONAL_SYSTEM_PROMPT
+          : SYSTEM_PROMPT;
 
       let classification: Classification;
       try {

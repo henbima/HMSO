@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { MessageCircle, ArrowLeft, Search } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
 import { ClassificationBadge } from '../components/StatusBadge';
-import { waIntel } from '../lib/supabase';
+import { hmso } from '../lib/supabase';
 import type { Message, ClassifiedItem } from '../lib/types';
 
 interface ContactSummary {
@@ -37,7 +37,7 @@ export default function ConversationsPage() {
     setLoading(true);
 
     // Fetch personal messages grouped by contact
-    const { data, error } = await waIntel
+    const { data, error } = await hmso
       .from('messages')
       .select('wa_contact_jid, sender_name, timestamp, contacts:contact_id(display_name)')
       .eq('conversation_type', 'personal')
@@ -92,7 +92,7 @@ export default function ConversationsPage() {
     setMessages([]);
     setHasMore(true);
 
-    const { count } = await waIntel
+    const { count } = await hmso
       .from('messages')
       .select('*', { count: 'exact', head: true })
       .eq('wa_contact_jid', contact.wa_contact_jid)
@@ -100,7 +100,7 @@ export default function ConversationsPage() {
 
     setTotalCount(count || 0);
 
-    const { data: msgData } = await waIntel
+    const { data: msgData } = await hmso
       .from('messages')
       .select('*, classified_items(*)')
       .eq('wa_contact_jid', contact.wa_contact_jid)
@@ -125,7 +125,7 @@ export default function ConversationsPage() {
     if (!selectedContact || loadingMore || !hasMore) return;
     setLoadingMore(true);
 
-    const { data: msgData } = await waIntel
+    const { data: msgData } = await hmso
       .from('messages')
       .select('*, classified_items(*)')
       .eq('wa_contact_jid', selectedContact.wa_contact_jid)

@@ -15,10 +15,11 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const MAX_MESSAGES_PER_WINDOW = 150;
 const MIN_MESSAGES_FOR_SEGMENTATION = 3;
+const BATCH_SIZE = 5; // Process max 5 groups per invocation to avoid timeout
 const WIB_OFFSET_HOURS = 7; // UTC+7
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  db: { schema: "wa_intel" },
+  db: { schema: "hmso" },
 });
 
 // ─── AI Provider Abstraction (reused from classify-messages) ──────────────
@@ -88,6 +89,7 @@ function createAIProvider(): AIProvider {
   }
 }
 
+
 // ─── Types ────────────────────────────────────────────────────────────────
 
 interface MessageRow {
@@ -107,9 +109,6 @@ interface MessageRow {
     location: string | null;
     department: string | null;
     is_leadership: boolean | null;
-  } | null;
-  groups: {
-    name: string;
   } | null;
 }
 
@@ -155,7 +154,6 @@ function getAnalysisDateRange(overrideDate?: string): {
   dateStr: string;
 } {
   if (overrideDate) {
-    // Allow manual override for testing: "2026-02-10"
     const start = new Date(`${overrideDate}T00:00:00+07:00`);
     const end = new Date(`${overrideDate}T23:59:59.999+07:00`);
     return {
@@ -165,18 +163,15 @@ function getAnalysisDateRange(overrideDate?: string): {
     };
   }
 
-  // Default: analyze yesterday (WIB)
   const nowUtc = new Date();
   const nowWib = new Date(nowUtc.getTime() + WIB_OFFSET_HOURS * 60 * 60 * 1000);
 
   const yesterday = new Date(nowWib);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  const dateStr = yesterday.toISOString().split("T")[0]; // YYYY-MM-DD
+  const dateStr = yesterday.toISOString().split("T")[0];
 
-  // Yesterday 00:00:00 WIB → UTC
   const start = new Date(`${dateStr}T00:00:00+07:00`);
-  // Yesterday 23:59:59.999 WIB → UTC
   const end = new Date(`${dateStr}T23:59:59.999+07:00`);
 
   return {
@@ -186,82 +181,82 @@ function getAnalysisDateRange(overrideDate?: string): {
   };
 }
 
-// ─── Data Fetching ────────────────────────────────────────────────────────
+// ─── Data Fetching (FIXED: use wa_group_id for resilient joins) ───────────
 
 async function getActiveGroupsWithMessages(
   startUtc: string,
   endUtc: string
 ): Promise<ActiveGroup[]> {
-  // Get groups that have messages in the date range
-  const { data, error } = await supabase.rpc("get_active_groups_for_date", {
-    start_ts: startUtc,
-    end_ts: endUtc,
-  });
-
-  if (error) {
-    // Fallback: query directly if RPC doesn't exist
-    console.warn("RPC not found, using direct query:", error.message);
-    return await getActiveGroupsFallback(startUtc, endUtc);
-  }
-
-  return (data as ActiveGroup[]) || [];
-}
-
-async function getActiveGroupsFallback(
-  startUtc: string,
-  endUtc: string
-): Promise<ActiveGroup[]> {
-  const { data, error } = await supabase
+  // Query distinct wa_group_ids from messages in the date range,
+  // then look up group records by wa_group_id.
+  // This is resilient to group_id being NULL on messages.
+  const { data: msgData, error: msgError } = await supabase
     .from("messages")
-    .select("group_id, groups!inner(id, name, wa_group_id)")
+    .select("wa_group_id")
     .gte("timestamp", startUtc)
     .lte("timestamp", endUtc)
     .not("message_text", "is", null)
-    .neq("message_text", "");
+    .neq("message_text", "")
+    .not("wa_group_id", "is", null);
 
-  if (error) {
-    throw new Error(`Failed to fetch active groups: ${error.message}`);
+  if (msgError) {
+    throw new Error(`Failed to fetch messages: ${msgError.message}`);
   }
 
-  // Aggregate by group
-  const groupMap = new Map<string, ActiveGroup>();
-  for (const row of data || []) {
-    const group = (row as any).groups;
-    if (!group) continue;
-    const existing = groupMap.get(group.id);
-    if (existing) {
-      existing.message_count++;
-    } else {
-      groupMap.set(group.id, {
+  if (!msgData || msgData.length === 0) return [];
+
+  // Count messages per wa_group_id
+  const countMap = new Map<string, number>();
+  for (const row of msgData) {
+    const wgid = (row as { wa_group_id: string }).wa_group_id;
+    countMap.set(wgid, (countMap.get(wgid) || 0) + 1);
+  }
+
+  // Look up group records for these wa_group_ids
+  const waGroupIds = Array.from(countMap.keys());
+  const { data: groupData, error: groupError } = await supabase
+    .from("groups")
+    .select("id, name, wa_group_id")
+    .in("wa_group_id", waGroupIds);
+
+  if (groupError) {
+    throw new Error(`Failed to fetch groups: ${groupError.message}`);
+  }
+
+  const activeGroups: ActiveGroup[] = [];
+  for (const g of groupData || []) {
+    const group = g as { id: string; name: string; wa_group_id: string };
+    const msgCount = countMap.get(group.wa_group_id) || 0;
+    if (msgCount > 0) {
+      activeGroups.push({
         id: group.id,
         name: group.name,
         wa_group_id: group.wa_group_id,
-        message_count: 1,
+        message_count: msgCount,
       });
     }
   }
 
-  return Array.from(groupMap.values()).sort(
-    (a, b) => b.message_count - a.message_count
-  );
+  return activeGroups.sort((a, b) => b.message_count - a.message_count);
 }
 
 async function getGroupMessages(
-  groupId: string,
+  waGroupId: string,
   startUtc: string,
   endUtc: string
 ): Promise<MessageRow[]> {
+  // FIXED: filter by wa_group_id instead of group_id (UUID FK)
+  // This works even when group_id is NULL on messages
   const { data, error } = await supabase
     .from("messages")
     .select(
       `
       id, wa_message_id, wa_group_id, sender_jid, sender_name,
       message_text, message_type, is_from_hendra, quoted_message_id, timestamp,
-      contacts:contact_id(display_name, role, location, department, is_leadership),
-      groups:group_id(name)
+      contacts:contact_id(display_name, role, location, department, is_leadership)
     `
     )
-    .eq("group_id", groupId)
+    .eq("wa_group_id", waGroupId)
     .gte("timestamp", startUtc)
     .lte("timestamp", endUtc)
     .not("message_text", "is", null)
@@ -269,11 +264,12 @@ async function getGroupMessages(
     .order("timestamp", { ascending: true });
 
   if (error) {
-    throw new Error(`Failed to fetch messages for group ${groupId}: ${error.message}`);
+    throw new Error(`Failed to fetch messages for group ${waGroupId}: ${error.message}`);
   }
 
   return (data as unknown as MessageRow[]) || [];
 }
+
 
 // ─── Window Splitting ─────────────────────────────────────────────────────
 
@@ -295,7 +291,7 @@ function splitIntoWindows(
 
 // ─── AI Prompts ───────────────────────────────────────────────────────────
 
-const SEGMENTATION_SYSTEM_PROMPT = `You are an AI analyst for HollyMart Corp's WhatsApp business intelligence system. HollyMart is a retail company in Indonesia with multiple stores. Messages are from WhatsApp groups used for daily operations, management, and coordination. Most messages are in Bahasa Indonesia.
+const SEGMENTATION_SYSTEM_PROMPT = `You are an AI analyst for HollyMart Corp's organizational intelligence system (HMSO). HollyMart is a retail company in Indonesia with multiple stores. Messages are from WhatsApp groups used for daily operations, management, and coordination. Most messages are in Bahasa Indonesia.
 
 Your job is to identify distinct conversation TOPICS within a day's worth of messages from a single WhatsApp group. Messages that are about the same subject should be grouped together, even if they don't use WhatsApp's reply feature.
 
@@ -310,7 +306,7 @@ Rules:
 
 Return ONLY valid JSON. No markdown, no explanation.`;
 
-const CLASSIFICATION_SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's WhatsApp business intelligence system. HollyMart is a retail company in Indonesia with multiple stores.
+const CLASSIFICATION_SYSTEM_PROMPT = `You are an AI classifier for HollyMart Corp's organizational intelligence system (HMSO). HollyMart is a retail company in Indonesia with multiple stores.
 
 You will receive a COMPLETE conversation topic — all messages related to one subject, extracted from a WhatsApp group. You have the full conversation arc from start to finish.
 
@@ -344,7 +340,7 @@ function buildSegmentationPrompt(
     const time = new Date(msg.timestamp).toLocaleTimeString("id-ID", {
       hour: "2-digit",
       minute: "2-digit",
-      timeZone: "Asia/Makassar", // WIB = UTC+7, closest IANA zone
+      timeZone: "Asia/Makassar",
     });
     const isReply = msg.quoted_message_id ? " [REPLY]" : "";
 
@@ -435,6 +431,7 @@ Return JSON:
 }`;
 }
 
+
 // ─── AI Calls ─────────────────────────────────────────────────────────────
 
 async function segmentTopics(
@@ -494,7 +491,7 @@ async function saveDailyTopic(
   dateStr: string,
   topic: SegmentedTopic,
   classification: TopicClassification,
-  messages: MessageRow[],
+  _messages: MessageRow[],
   topicMessages: MessageRow[],
   aiModel: string,
   rawAiResponse: object
@@ -577,7 +574,6 @@ async function createTaskFromTopic(
   classification: TopicClassification,
   topicMessages: MessageRow[]
 ): Promise<void> {
-  // Use the first message as source (the one that initiated the task)
   const sourceMessage = topicMessages[0];
 
   const { error } = await supabase.from("tasks").insert({
@@ -629,10 +625,10 @@ async function createDirectionFromTopic(
   }
 }
 
+
 // ─── Multi-Day Ongoing Topic Tracking ─────────────────────────────────────
 
 async function checkOngoingTopics(dateStr: string): Promise<number> {
-  // Fetch topics from previous days marked as ongoing
   const { data: ongoingTopics, error } = await supabase
     .from("daily_topics")
     .select("id, group_id, topic_label, key_participants, classification")
@@ -650,7 +646,6 @@ async function checkOngoingTopics(dateStr: string): Promise<number> {
 
   let resolved = 0;
 
-  // Get today's topics to check for continuations
   const { data: todayTopics, error: todayError } = await supabase
     .from("daily_topics")
     .select("id, group_id, topic_label, classification, outcome")
@@ -659,7 +654,6 @@ async function checkOngoingTopics(dateStr: string): Promise<number> {
   if (todayError || !todayTopics) return 0;
 
   for (const ongoing of ongoingTopics) {
-    // Find a matching topic today in the same group
     const continuation = todayTopics.find(
       (t: { id: string; group_id: string; topic_label: string; classification: string; outcome: string }) =>
         t.group_id === ongoing.group_id &&
@@ -668,13 +662,11 @@ async function checkOngoingTopics(dateStr: string): Promise<number> {
     );
 
     if (continuation) {
-      // Mark old topic as resolved
       await supabase
         .from("daily_topics")
         .update({ is_ongoing: false })
         .eq("id", ongoing.id);
 
-      // Link new topic to old one
       await supabase
         .from("daily_topics")
         .update({ continued_from: ongoing.id })
@@ -700,7 +692,6 @@ async function classifyStandaloneMessages(
   let directions = 0;
 
   for (const msg of messages) {
-    // Create a single-message topic
     const syntheticTopic: SegmentedTopic = {
       topic_id: 1,
       label: msg.message_text.substring(0, 40),
@@ -773,7 +764,7 @@ async function classifyStandaloneMessages(
   return { topics, tasks, directions };
 }
 
-// ─── Deadline Parsing (reused from classify-messages) ─────────────────────
+// ─── Deadline Parsing ─────────────────────────────────────────────────────
 
 function tryParseDeadline(deadlineText: string): string | null {
   const now = new Date();
@@ -837,6 +828,7 @@ async function hasExistingAnalysis(
   return data !== null;
 }
 
+
 // ─── Main Entry Point ─────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -848,11 +840,10 @@ Deno.serve(async (req: Request) => {
     const aiProvider = createAIProvider();
     console.log(`[analyze-daily] Using AI provider: ${aiProvider.modelName}`);
 
-    // Parse optional date override from request body
     let overrideDate: string | undefined;
     try {
       const body = await req.json();
-      overrideDate = body?.date; // e.g. "2026-02-10"
+      overrideDate = body?.date;
     } catch {
       // No body or invalid JSON — use default (yesterday)
     }
@@ -860,8 +851,8 @@ Deno.serve(async (req: Request) => {
     const { startUtc, endUtc, dateStr } = getAnalysisDateRange(overrideDate);
     console.log(`[analyze-daily] Analyzing date: ${dateStr} (${startUtc} → ${endUtc})`);
 
-    // 1. Find active groups with messages
-    const activeGroups = await getActiveGroupsFallback(startUtc, endUtc);
+    // FIXED: use wa_group_id-based lookup instead of group_id FK join
+    const activeGroups = await getActiveGroupsWithMessages(startUtc, endUtc);
     console.log(`[analyze-daily] Found ${activeGroups.length} active groups`);
 
     if (activeGroups.length === 0) {
@@ -870,7 +861,38 @@ Deno.serve(async (req: Request) => {
           date: dateStr,
           groups_analyzed: 0,
           topics_found: 0,
+          total_active_groups: 0,
+          remaining: 0,
+          batch_complete: true,
           message: "No active groups with messages for this date",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Filter out already-analyzed groups, then take only BATCH_SIZE
+    const pendingGroups: typeof activeGroups = [];
+    for (const group of activeGroups) {
+      if (!(await hasExistingAnalysis(group.id, dateStr))) {
+        pendingGroups.push(group);
+      }
+    }
+
+    const batchGroups = pendingGroups.slice(0, BATCH_SIZE);
+    const remaining = pendingGroups.length - batchGroups.length;
+
+    console.log(`[analyze-daily] ${activeGroups.length} active, ${pendingGroups.length} pending, processing batch of ${batchGroups.length}, ${remaining} remaining after this batch`);
+
+    if (batchGroups.length === 0) {
+      return new Response(
+        JSON.stringify({
+          date: dateStr,
+          groups_analyzed: 0,
+          topics_found: 0,
+          total_active_groups: activeGroups.length,
+          remaining: 0,
+          batch_complete: true,
+          message: "All groups already analyzed for this date",
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -882,23 +904,16 @@ Deno.serve(async (req: Request) => {
     let groupsAnalyzed = 0;
     const errors: string[] = [];
 
-    for (const group of activeGroups) {
+    for (const group of batchGroups) {
       console.log(`[analyze-daily] Processing group: ${group.name} (${group.message_count} msgs)`);
 
-      // Duplicate prevention
-      if (await hasExistingAnalysis(group.id, dateStr)) {
-        console.log(`[analyze-daily] Skipping ${group.name} — already analyzed for ${dateStr}`);
-        continue;
-      }
-
-      // 2. Fetch all messages for this group
-      const messages = await getGroupMessages(group.id, startUtc, endUtc);
+      // FIXED: fetch messages by wa_group_id instead of group_id UUID
+      const messages = await getGroupMessages(group.wa_group_id, startUtc, endUtc);
 
       if (messages.length === 0) continue;
 
       groupsAnalyzed++;
 
-      // 3. Handle small groups (< MIN_MESSAGES) as standalone
       if (messages.length < MIN_MESSAGES_FOR_SEGMENTATION) {
         try {
           const result = await classifyStandaloneMessages(
@@ -918,11 +933,9 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      // 4. Split large groups into windows
       const windows = splitIntoWindows(messages, MAX_MESSAGES_PER_WINDOW);
 
       for (const windowMessages of windows) {
-        // 5. AI Step 1: Topic Segmentation
         let segmentation: SegmentationResult;
         try {
           segmentation = await segmentTopics(
@@ -941,9 +954,7 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        // 6. AI Step 2: Classify each topic
         for (const topic of segmentation.topics) {
-          // Resolve message indices to actual messages (1-indexed)
           const topicMessages = topic.message_indices
             .map((idx) => windowMessages[idx - 1])
             .filter(Boolean);
@@ -974,7 +985,6 @@ Deno.serve(async (req: Request) => {
             if (topicId) {
               totalTopics++;
 
-              // 7. Auto-create tasks/directions
               if (classification.classification === "task") {
                 await createTaskFromTopic(
                   group.id,
@@ -1004,7 +1014,6 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        // Save noise messages as a single noise topic
         const noiseMessages = segmentation.noise_indices
           .map((idx) => windowMessages[idx - 1])
           .filter(Boolean);
@@ -1013,7 +1022,6 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 8. Check ongoing topics from previous days
     const ongoingResolved = await checkOngoingTopics(dateStr);
 
     const result = {
@@ -1023,6 +1031,9 @@ Deno.serve(async (req: Request) => {
       tasks_created: totalTasks,
       directions_created: totalDirections,
       ongoing_resolved: ongoingResolved,
+      total_active_groups: activeGroups.length,
+      remaining,
+      batch_complete: remaining === 0,
       errors: errors.length > 0 ? errors : undefined,
     };
 

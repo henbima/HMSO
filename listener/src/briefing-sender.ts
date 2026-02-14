@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 
 const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey, {
-  db: { schema: 'wa_intel' },
+  db: { schema: 'hmso' },
 });
 
 export async function checkAndSendBriefings(sock: WASocket): Promise<void> {

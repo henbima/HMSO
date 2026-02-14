@@ -31,8 +31,8 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-12 h-12 bg-emerald-600 rounded-xl mb-4">
             <Activity className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">HollyMart WA Intel</h1>
-          <p className="text-sm text-gray-500 mt-1">WhatsApp Intelligence Dashboard</p>
+          <h1 className="text-xl font-semibold text-gray-900">HMSO</h1>
+          <p className="text-sm text-gray-500 mt-1">HollyMart Signal Operations</p>
         </div>
 
         <div className="bg-white rounded-xl border shadow-sm p-6">

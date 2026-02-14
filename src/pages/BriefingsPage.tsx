@@ -1,7 +1,21 @@
 import { useEffect, useState } from 'react';
-import { FileText, Calendar, AlertCircle, RefreshCw, Loader2, ChevronDown, ChevronUp, Clock, CheckSquare, AlertTriangle, Compass, ListTodo } from 'lucide-react';
-import { waIntel, supabase } from '../lib/supabase';
+import {
+  FileText,
+  Calendar,
+  AlertCircle,
+  RefreshCw,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  CheckSquare,
+  AlertTriangle,
+  Compass,
+  ListTodo,
+} from 'lucide-react';
+import { hmso, supabase } from '../lib/supabase';
 import EmptyState from '../components/EmptyState';
+import BriefingSummaryRenderer from '../components/BriefingSummaryRenderer';
 
 interface Briefing {
   id: string;
@@ -65,7 +79,7 @@ export default function BriefingsPage() {
 
   async function fetchBriefings() {
     try {
-      const { data, error } = await waIntel
+      const { data, error } = await hmso
         .from('daily_briefings')
         .select('*')
         .order('created_at', { ascending: false })
@@ -129,6 +143,7 @@ export default function BriefingsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Daily Briefings</h1>
@@ -137,6 +152,7 @@ export default function BriefingsPage() {
           </p>
         </div>
         <button
+          type="button"
           onClick={generateBriefing}
           disabled={generating}
           className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -178,7 +194,9 @@ export default function BriefingsPage() {
                   isExpanded ? 'border-emerald-300 shadow-md' : 'border-gray-200 hover:border-gray-300'
                 } ${todayBriefing && !isExpanded ? 'ring-2 ring-emerald-100' : ''}`}
               >
+                {/* Collapsed header — always visible */}
                 <button
+                  type="button"
                   onClick={() => setExpandedId(isExpanded ? null : briefing.id)}
                   className="w-full text-left"
                 >
@@ -207,19 +225,21 @@ export default function BriefingsPage() {
 
                     <div className="flex items-center gap-4">
                       <div className="hidden sm:flex items-center gap-3 text-sm">
-                        <div className="flex items-center gap-1 text-blue-600">
+                        <div className="flex items-center gap-1 text-blue-600" title="Tugas Baru">
                           <ListTodo className="w-4 h-4" />
                           <span>{briefing.new_tasks_count}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-red-600">
-                          <AlertTriangle className="w-4 h-4" />
-                          <span>{briefing.overdue_tasks_count}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-green-600">
+                        {briefing.overdue_tasks_count > 0 && (
+                          <div className="flex items-center gap-1 text-red-600" title="Terlambat">
+                            <AlertTriangle className="w-4 h-4" />
+                            <span>{briefing.overdue_tasks_count}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1 text-green-600" title="Selesai">
                           <CheckSquare className="w-4 h-4" />
                           <span>{briefing.completed_tasks_count}</span>
                         </div>
-                        <div className="flex items-center gap-1 text-teal-600">
+                        <div className="flex items-center gap-1 text-teal-600" title="Arahan Baru">
                           <Compass className="w-4 h-4" />
                           <span>{briefing.new_directions_count}</span>
                         </div>
@@ -233,42 +253,20 @@ export default function BriefingsPage() {
                   </div>
                 </button>
 
+                {/* Expanded content */}
                 {isExpanded && (
                   <div className="border-t border-gray-200">
+                    {/* Stat boxes */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 py-4 bg-gradient-to-r from-gray-50 to-slate-50">
-                      <StatBox
-                        label="Tugas Baru"
-                        value={briefing.new_tasks_count}
-                        color="blue"
-                        icon={ListTodo}
-                      />
-                      <StatBox
-                        label="Terlambat"
-                        value={briefing.overdue_tasks_count}
-                        color="red"
-                        icon={AlertTriangle}
-                      />
-                      <StatBox
-                        label="Selesai"
-                        value={briefing.completed_tasks_count}
-                        color="green"
-                        icon={CheckSquare}
-                      />
-                      <StatBox
-                        label="Arahan Baru"
-                        value={briefing.new_directions_count}
-                        color="teal"
-                        icon={Compass}
-                      />
+                      <StatBox label="Tugas Baru" value={briefing.new_tasks_count} color="blue" icon={ListTodo} />
+                      <StatBox label="Terlambat" value={briefing.overdue_tasks_count} color="red" icon={AlertTriangle} />
+                      <StatBox label="Selesai" value={briefing.completed_tasks_count} color="green" icon={CheckSquare} />
+                      <StatBox label="Arahan Baru" value={briefing.new_directions_count} color="teal" icon={Compass} />
                     </div>
 
+                    {/* Parsed summary */}
                     <div className="px-5 py-4">
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">Ringkasan</h4>
-                      <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
-                        <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
-                          {briefing.summary_text}
-                        </pre>
-                      </div>
+                      <BriefingSummaryRenderer summaryText={briefing.summary_text} />
                     </div>
                   </div>
                 )}

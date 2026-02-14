@@ -36,7 +36,7 @@ export default function Layout() {
       <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-emerald-600" />
-          <span className="font-semibold text-gray-900 text-sm">WA Intel</span>
+          <span className="font-semibold text-gray-900 text-sm">HMSO</span>
         </div>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -65,7 +65,7 @@ export default function Layout() {
             </div>
             <div>
               <h1 className="font-semibold text-gray-900 text-sm leading-tight">HollyMart</h1>
-              <p className="text-[11px] text-gray-500 leading-tight">WA Intelligence</p>
+              <p className="text-[11px] text-gray-500 leading-tight">Signal Operations</p>
             </div>
           </div>
         </div>

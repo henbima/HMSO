@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
-import { MessageSquare, Users, ChevronRight, ArrowLeft, Search, Star, SortAsc, Activity, LayoutGrid, List, Database } from 'lucide-react';
+import { MessageSquare, Users, ChevronRight, ArrowLeft, Search, Star, SortAsc, Activity, LayoutGrid, List, Database, Settings } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
 import { ClassificationBadge } from '../components/StatusBadge';
 import { SourceBadge } from '../components/SourceBadge';
-import { waIntel } from '../lib/supabase';
+import { CategoryBadge } from '../components/CategoryBadge';
+import { CategoryFilter } from '../components/CategoryFilter';
+import { CategoryPicker } from '../components/CategoryPicker';
+import { CategoryManager } from '../components/CategoryManager';
+import { useGroupCategories } from '../hooks/useGroupCategories';
+import { updateGroupCategory } from '../services/group-category-service';
+import { hmso } from '../lib/supabase';
 import type { Group, Message, ClassifiedItem } from '../lib/types';
 
 interface GroupWithStats extends Group {
@@ -32,6 +38,10 @@ export default function GroupsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('activity');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedCategorySlug, setSelectedCategorySlug] = useState<string | null>(null);
+  const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
+
+  const { categoryMap, categoryBySlug } = useGroupCategories();
 
   useEffect(() => {
     loadGroups();
@@ -39,7 +49,7 @@ export default function GroupsPage() {
 
   async function loadGroups() {
     setLoading(true);
-    const { data, error } = await waIntel.rpc('get_groups_with_today_stats');
+    const { data, error } = await hmso.rpc('get_groups_with_today_stats');
 
     if (error) {
       console.error('Failed to load groups:', error);
@@ -60,7 +70,7 @@ export default function GroupsPage() {
       g.id === group.id ? { ...g, is_starred: newStarred } : g
     ));
 
-    await waIntel
+    await hmso
       .from('groups')
       .update({ is_starred: newStarred })
       .eq('id', group.id);
@@ -75,6 +85,14 @@ export default function GroupsPage() {
         g.name.toLowerCase().includes(query) ||
         (g.description?.toLowerCase().includes(query))
       );
+    }
+
+    // Filter by category if selected
+    if (selectedCategorySlug !== null) {
+      const selectedCategory = categoryBySlug[selectedCategorySlug];
+      if (selectedCategory) {
+        result = result.filter(g => g.category_id === selectedCategory.id);
+      }
     }
 
     result.sort((a, b) => {
@@ -96,10 +114,24 @@ export default function GroupsPage() {
     });
 
     return result;
-  }, [groups, searchQuery, sortBy]);
+  }, [groups, searchQuery, sortBy, selectedCategorySlug, categoryBySlug]);
 
   const starredGroups = filteredAndSortedGroups.filter(g => g.is_starred);
   const otherGroups = filteredAndSortedGroups.filter(g => !g.is_starred);
+
+  // Calculate group counts by category slug for CategoryFilter
+  const groupCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    
+    groups.forEach(group => {
+      if (group.category_id && categoryMap[group.category_id]) {
+        const slug = categoryMap[group.category_id].slug;
+        counts[slug] = (counts[slug] || 0) + 1;
+      }
+    });
+    
+    return counts;
+  }, [groups, categoryMap]);
 
   const stats = useMemo(() => ({
     total: groups.length,
@@ -114,14 +146,14 @@ export default function GroupsPage() {
     setMessages([]);
     setHasMore(true);
 
-    const { count } = await waIntel
+    const { count } = await hmso
       .from('messages')
       .select('*', { count: 'exact', head: true })
       .eq('wa_group_id', group.wa_group_id);
 
     setTotalCount(count || 0);
 
-    const { data: msgData } = await waIntel
+    const { data: msgData } = await hmso
       .from('messages')
       .select('*, classified_items(*)')
       .eq('wa_group_id', group.wa_group_id)
@@ -146,7 +178,7 @@ export default function GroupsPage() {
 
     setLoadingMore(true);
 
-    const { data: msgData } = await waIntel
+    const { data: msgData } = await hmso
       .from('messages')
       .select('*, classified_items(*)')
       .eq('wa_group_id', selectedGroup.wa_group_id)
@@ -191,17 +223,37 @@ export default function GroupsPage() {
         loadingMore={loadingMore}
         onLoadMore={loadMoreMessages}
         onToggleStar={(e) => toggleStar(e, selectedGroup)}
+        categoryMap={categoryMap}
+        onCategoryChange={async (categoryId: string) => {
+          const { error } = await updateGroupCategory(selectedGroup.id, categoryId);
+          if (!error) {
+            setSelectedGroup({ ...selectedGroup, category_id: categoryId });
+            setGroups(prev => prev.map(g => 
+              g.id === selectedGroup.id ? { ...g, category_id: categoryId } : g
+            ));
+          }
+        }}
       />
     );
   }
 
   return (
+    <>
     <div className="space-y-5 fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Groups</h1>
           <p className="text-sm text-gray-500 mt-0.5">WhatsApp group activity overview</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setIsCategoryManagerOpen(true)}
+          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50 transition-colors"
+          title="Manage Categories"
+        >
+          <Settings className="w-4 h-4" />
+          Manage Categories
+        </button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -240,6 +292,7 @@ export default function GroupsPage() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortOption)}
+              aria-label="Sort groups"
               className="pl-10 pr-8 py-2.5 border rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none cursor-pointer"
             >
               <option value="activity">Most Active</option>
@@ -249,20 +302,31 @@ export default function GroupsPage() {
           </div>
           <div className="flex border rounded-lg overflow-hidden">
             <button
+              type="button"
               onClick={() => setViewMode('grid')}
               className={`p-2.5 ${viewMode === 'grid' ? 'bg-emerald-50 text-emerald-600' : 'bg-white text-gray-400 hover:text-gray-600'}`}
+              title="Grid view"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
+              type="button"
               onClick={() => setViewMode('list')}
               className={`p-2.5 ${viewMode === 'list' ? 'bg-emerald-50 text-emerald-600' : 'bg-white text-gray-400 hover:text-gray-600'}`}
+              title="List view"
             >
               <List className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
+
+      {/* Category Filter */}
+      <CategoryFilter
+        selectedCategory={selectedCategorySlug}
+        onChange={setSelectedCategorySlug}
+        groupCounts={groupCounts}
+      />
 
       {groups.length === 0 ? (
         <EmptyState
@@ -290,6 +354,7 @@ export default function GroupsPage() {
                 viewMode={viewMode}
                 onSelect={loadGroupMessages}
                 onToggleStar={toggleStar}
+                categoryMap={categoryMap}
               />
             </div>
           )}
@@ -306,12 +371,19 @@ export default function GroupsPage() {
                 viewMode={viewMode}
                 onSelect={loadGroupMessages}
                 onToggleStar={toggleStar}
+                categoryMap={categoryMap}
               />
             </div>
           )}
         </div>
       )}
     </div>
+
+    <CategoryManager
+      isOpen={isCategoryManagerOpen}
+      onClose={() => setIsCategoryManagerOpen(false)}
+    />
+    </>
   );
 }
 
@@ -320,11 +392,13 @@ function GroupGrid({
   viewMode,
   onSelect,
   onToggleStar,
+  categoryMap,
 }: {
   groups: GroupWithStats[];
   viewMode: 'grid' | 'list';
   onSelect: (group: GroupWithStats) => void;
   onToggleStar: (e: React.MouseEvent, group: GroupWithStats) => void;
+  categoryMap: Record<string, any>;
 }) {
   if (viewMode === 'list') {
     return (
@@ -336,8 +410,10 @@ function GroupGrid({
             className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer"
           >
             <button
+              type="button"
               onClick={(e) => onToggleStar(e, group)}
               className="p-1 hover:bg-gray-100 rounded transition-colors"
+              title={group.is_starred ? 'Unstar group' : 'Star group'}
             >
               <Star className={`w-4 h-4 ${group.is_starred ? 'text-amber-500 fill-amber-500' : 'text-gray-300 hover:text-gray-400'}`} />
             </button>
@@ -349,6 +425,9 @@ function GroupGrid({
                     <Activity className="w-3 h-3" />
                     Active
                   </span>
+                )}
+                {group.category_id && categoryMap[group.category_id] && (
+                  <CategoryBadge category={categoryMap[group.category_id]} size="sm" />
                 )}
               </div>
               {group.description && (
@@ -377,6 +456,7 @@ function GroupGrid({
           group={group}
           onSelect={onSelect}
           onToggleStar={onToggleStar}
+          categoryMap={categoryMap}
         />
       ))}
     </div>
@@ -387,10 +467,12 @@ function GroupCard({
   group,
   onSelect,
   onToggleStar,
+  categoryMap,
 }: {
   group: GroupWithStats;
   onSelect: (group: GroupWithStats) => void;
   onToggleStar: (e: React.MouseEvent, group: GroupWithStats) => void;
+  categoryMap: Record<string, any>;
 }) {
   const hasActivity = group.today_message_count > 0;
 
@@ -402,8 +484,10 @@ function GroupCard({
       }`}
     >
       <button
+        type="button"
         onClick={(e) => onToggleStar(e, group)}
         className="absolute top-3 right-3 p-1.5 hover:bg-white/80 rounded-lg transition-colors z-10"
+        title={group.is_starred ? 'Unstar group' : 'Star group'}
       >
         <Star className={`w-4 h-4 ${group.is_starred ? 'text-amber-500 fill-amber-500' : 'text-gray-300 hover:text-gray-400'}`} />
       </button>
@@ -418,6 +502,11 @@ function GroupCard({
           </div>
           {group.description && (
             <p className="text-xs text-gray-500 mt-0.5 truncate">{group.description}</p>
+          )}
+          {group.category_id && categoryMap[group.category_id] && (
+            <div className="mt-2">
+              <CategoryBadge category={categoryMap[group.category_id]} size="sm" />
+            </div>
           )}
         </div>
       </div>
@@ -466,6 +555,8 @@ function GroupDetail({
   loadingMore,
   onLoadMore,
   onToggleStar,
+  categoryMap,
+  onCategoryChange,
 }: {
   group: GroupWithStats;
   messages: MessageWithClassification[];
@@ -476,6 +567,8 @@ function GroupDetail({
   loadingMore: boolean;
   onLoadMore: () => void;
   onToggleStar: (e: React.MouseEvent) => void;
+  categoryMap: Record<string, any>;
+  onCategoryChange: (categoryId: string) => void;
 }) {
   const importantMessages = messages.filter(
     (m) => m.classification && !['noise', 'coordination'].includes(m.classification.classification)
@@ -486,8 +579,10 @@ function GroupDetail({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={onBack}
             className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+            title="Back to groups"
           >
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </button>
@@ -497,23 +592,35 @@ function GroupDetail({
               {group.is_starred && (
                 <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
               )}
+              {group.category_id && categoryMap[group.category_id] && (
+                <CategoryBadge category={categoryMap[group.category_id]} size="sm" />
+              )}
             </div>
             <p className="text-sm text-gray-500">
               {group.participant_count} members | {totalCount.toLocaleString()} total messages | Showing {messages.length}
             </p>
           </div>
         </div>
-        <button
-          onClick={onToggleStar}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            group.is_starred
-              ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
-        >
-          <Star className={`w-4 h-4 ${group.is_starred ? 'fill-amber-500' : ''}`} />
-          {group.is_starred ? 'Monitored' : 'Monitor'}
-        </button>
+        <div className="flex items-center gap-2">
+          <CategoryPicker
+            value={group.category_id || null}
+            onChange={onCategoryChange}
+            size="sm"
+          />
+          <button
+            type="button"
+            onClick={onToggleStar}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              group.is_starred
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+            title={group.is_starred ? 'Unmonitor group' : 'Monitor group'}
+          >
+            <Star className={`w-4 h-4 ${group.is_starred ? 'fill-amber-500' : ''}`} />
+            {group.is_starred ? 'Monitored' : 'Monitor'}
+          </button>
+        </div>
       </div>
 
       {loading ? (

@@ -12,7 +12,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  db: { schema: "wa_intel" },
+  db: { schema: "hmso" },
 });
 
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -379,8 +379,33 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const today = getJakartaDate(0);
-    const yesterday = getJakartaDate(-1);
+    // Support date override: POST { "date": "2026-02-09" } generates briefing FOR that date using its topic data
+    let overrideDate: string | undefined;
+    try {
+      const body = await req.json();
+      overrideDate = body?.date;
+    } catch {
+      // No body or invalid JSON — use default
+    }
+
+    let today: { startUtc: string; endUtc: string; dateStr: string };
+    let yesterday: { startUtc: string; endUtc: string; dateStr: string };
+
+    if (overrideDate) {
+      // When date is overridden, "yesterday" = the override date (topic source), "today" = override date (briefing date)
+      const start = new Date(`${overrideDate}T00:00:00+07:00`);
+      const end = new Date(`${overrideDate}T23:59:59.999+07:00`);
+      yesterday = {
+        startUtc: start.toISOString(),
+        endUtc: end.toISOString(),
+        dateStr: overrideDate,
+      };
+      today = { ...yesterday };
+    } else {
+      today = getJakartaDate(0);
+      yesterday = getJakartaDate(-1);
+    }
+
     console.log(`[daily-briefing] Briefing date: ${today.dateStr}, topic analysis date: ${yesterday.dateStr}`);
 
     // Try topic-based approach first (Spec 202) - topics are from yesterday's analysis

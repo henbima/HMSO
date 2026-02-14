@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'wa-intel-listener',
+      name: 'hmso-listener',
       script: 'dist/index.js',
       cwd: __dirname,
       instances: 1,
@@ -28,7 +28,7 @@ module.exports = {
 // module.exports = {
 //   apps: [
 //     {
-//       name: 'wa-intel-personal',
+//       name: 'hmso-personal',
 //       script: 'dist/index.js',
 //       cwd: __dirname,
 //       instances: 1,
@@ -47,7 +47,7 @@ module.exports = {
 //       min_uptime: '10s',
 //     },
 //     {
-//       name: 'wa-intel-company',
+//       name: 'hmso-company',
 //       script: 'dist/index.js',
 //       cwd: __dirname,
 //       instances: 1,
